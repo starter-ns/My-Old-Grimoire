@@ -1,5 +1,6 @@
 const Book = require("../models/Book");
 const fs = require("fs");
+const mongoose = require("mongoose");
 
 // GET ALL BOOKS
 exports.getAllBooks = (req, res, next) => {
@@ -85,7 +86,14 @@ exports.modifyBook = (req, res, next) => {
 
 // DELETE BOOK
 exports.deleteBook = (req, res, next) => {
-  Book.findById(req.params.id)
+  const { id } = req.params;
+
+  // If id is not even a valid ObjectId → 404 directly
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(404).json({ error: "Book not found" });
+  }
+
+  Book.findById(id)
     .then(book => {
       if (!book) {
         return res.status(404).json({ error: "Book not found" });
@@ -96,14 +104,29 @@ exports.deleteBook = (req, res, next) => {
       }
 
       const filename = book.imageUrl.split("/images/")[1];
-      fs.unlink(`images/${filename}`, () => {
-        Book.deleteOne({ _id: req.params.id })
+
+      fs.unlink(`images/${filename}`, (err) => {
+        if (err) {
+          console.error("Error deleting image file:", err);
+          // we continue anyway to delete the book from DB
+        }
+
+        Book.deleteOne({ _id: id })
           .then(() => res.status(200).json({ message: "Book deleted!" }))
           .catch(error => res.status(400).json({ error }));
       });
     })
-    .catch(error => res.status(500).json({ error }));
+    .catch(error => {
+      // If something weird still happens, log it but don't pretend it's "normal"
+      console.error("Error in deleteBook:", error);
+      // You *can* treat CastError as 404 too if you like:
+      if (error.name === "CastError") {
+        return res.status(404).json({ error: "Book not found" });
+      }
+      res.status(500).json({ error });
+    });
 };
+
 
 // RATE BOOK
 exports.rateBook = (req, res, next) => {
